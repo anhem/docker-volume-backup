@@ -2,15 +2,15 @@
 
 Backup docker volumes with busybox.
 
-This script detects all existing docker volumes and runs busybox to attach to the volume to create backup tar files. 
+This script detects all existing docker volumes and runs a busybox container to attach to the volume to create backup tar files. 
 
 ## Backup
 
-`./docker_volume_backup.sh <containers to skip> <backup directory>`
+`./docker_volume_backup.sh <backup directory> [<skip containers>]`
 
 Here is an example where we want to skip volumes from the docker containers named mariadb and mongodb:
 ```
-./docker_volume_backup.sh mariadb mongodb /home/user/backup/
+./docker_volume_backup.sh /home/user/backup/ mariadb mongodb 
 ```
 
 ## Restore
