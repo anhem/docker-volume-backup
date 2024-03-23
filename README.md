@@ -4,10 +4,13 @@ Backup docker volumes with busybox.
 
 This script detects all existing docker volumes and runs busybox to attach to the volume to create backup tar files. 
 
-Use SKIP_CONTAINERS to not backup specific volumes by specifying the container name
+## Backup
 
+`./docker_volume_backup.sh <containers to skip> <backup directory>`
+
+Here is an example where we want to skip volumes from the docker containers named mariadb and mongodb:
 ```
-SKIP_CONTAINERS=("mongodb")
+./docker_volume_backup.sh mariadb mongodb /home/user/backup/
 ```
 
 ## Restore
@@ -20,3 +23,9 @@ Example
 ```
 docker run --rm -v /data/backup:/backup -v hello_world_volume:/etc/hello/world busybox tar -xvzf /backup/hello_world_volume.tar.gz -C /
 ```
+
+## Automatic backup
+
+## Cron
+
+Schedule as a cron job to run every night at 01:00 with `crontab -e` and add `0 1 * * * /path/to/dock_volume_backup.sh <backup directory>`
