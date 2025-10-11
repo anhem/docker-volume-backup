@@ -6,6 +6,8 @@ This script detects all existing docker volumes and runs a busybox or restic con
 
 Backups can be created as tar files with or without GPG encryption, or placed in a restic repository.
 
+This repo also includes scripts for mounting and unmount a nfs or samba share to store backups to.
+
 ## Backup
 
 For more information and options run:
@@ -38,7 +40,7 @@ docker run --rm \
   tar -xvzf /backup/backup.tar.gz -C /
 ```
 
-Example
+**Example**
 
 ```
 docker run --rm -v /data/backup:/backup -v hello_world_volume:/etc/hello/world busybox tar -xvzf /backup/hello_world_volume.tar.gz -C /
@@ -49,12 +51,11 @@ docker run --rm -v /data/backup:/backup -v hello_world_volume:/etc/hello/world b
 To restore gpg files, run the following command for each volume:
 
 ```
-docker run --rm \
+docker run --rm -it \
   -v BACKUP_DIR:/backup \
   -v volume_to_restore:/path/to/original/mount \
-  -e BACKUP_PASSWORD='your-secret-password' \
   busybox \
-  sh -c "gpg --decrypt --batch --passphrase \"\$BACKUP_PASSWORD\" /backup/backup.tar.gz.gpg | tar -xvzf -C /"
+  sh -c 'read -sp "Enter backup password: " PWD; echo; gpg --decrypt --batch --passphrase "$PWD" /backup/backup.tar.gz.gpg | tar -xvzf - -C /'
 ```
 
 ### restic
@@ -65,11 +66,20 @@ To restore from restic repository, run the following command for each volume:
 docker run --rm \
   -v BACKUP_DIR:/repo \
   -v volume_to_restore:/path/to/original/mount \
-  -e RESTIC_PASSWORD='your-secret-password' \
   restic/restic restore latest --target /path/to/original/mount
 ```
 
 see restic documentation [restoring from backup](https://restic.readthedocs.io/en/stable/050_restore.html) for more information
+
+**Check snapshots on an nfs share**
+
+```
+sudo mount -t nfs <ip>:<repo> /mnt/restic-repo && \
+sudo docker run --rm -it \
+  -v /mnt/restic-repo:/repo \
+  -e RESTIC_REPOSITORY=/repo \
+  restic/restic snapshots
+```
 
 ## Automatic backup
 
@@ -81,16 +91,39 @@ Schedule as a cron job to run every night at 01:00 with `crontab -e` and add `0 
 
 This will mount an NFS share before running the backup script and then unmount it when done.
 
-`mount_nfs_and_backup.sh <server> <share> <mount point> [<skip containers>]`
+`mount_nfs_and_backup.sh <server> <share> <mount point> <backup options>`
 
-to use an NFS share create a mount point and mark it as immutable to prevent anyone from writing to it
+to use an NFS share, create a mount point and mark it as immutable to prevent anyone from writing to it when not mounted
 
-Example:
+**Example:**
 
 ```
 mkdir -p /mnt/docker/
 chattr +i /mnt/docker/
-mount_nfs_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ mariadb mongodb 
+mount_nfs_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
+```
+
+## Samba
+
+This will mount a samba share before running the backup script and then unmount it when done.
+
+`mount_smb_and_backup.sh <server> <share> <mount point> <backup options>`
+
+requires a `.smbcreds` file for credentials with:
+
+```
+username=<username>
+password=<password>
+```
+
+to use a samba share, create a mount point and mark it as immutable to prevent anyone from writing to it when not mounted
+
+**Example:**
+
+```
+mkdir -p /mnt/docker/
+chattr +i /mnt/docker/
+mount_smb_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
 ```
 
 
