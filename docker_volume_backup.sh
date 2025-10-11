@@ -108,16 +108,16 @@ backup_volumes() {
                     -v "$backup_dir":/repo \
                     -e RESTIC_REPOSITORY=/repo \
                     -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
-                    restic/restic backup --tag "$volume" --tag "$container" --host "$(hostname)" "$source"
+                    restic/restic:"$RESTIC_VERSION" backup --tag "$volume" --tag "$container" --host "$(hostname)" "$source"
             else
                 local backup_file="$volume.tar.gz"
                 if [ "$ENCRYPT" = true ]; then
                     echo "-> Backing up and encrypting '$volume' (from '$source' on '$container') to $backup_dir$backup_file.gpg"
-                    docker run --rm --volumes-from "$container" busybox tar -zcf - "$source" | \
+                    docker run --rm --volumes-from "$container" busybox:"$BUSYBOX_VERSION" tar -zcf - "$source" | \
                         gpg --batch --yes --passphrase "$BACKUP_PASSWORD" -c -o "$backup_dir$backup_file.gpg"
                 else
                     echo "-> Backing up '$volume' (from '$source' on '$container') to $backup_dir$backup_file"
-                    docker run --rm --volumes-from "$container" -v "$backup_dir":/backup busybox tar -zcvf /backup/"$backup_file" "$source"
+                    docker run --rm --volumes-from "$container" -v "$backup_dir":/backup busybox:"$BUSYBOX_VERSION" tar -zcvf /backup/"$backup_file" "$source"
                 fi
             fi
             backup_performed_for_volume=true
@@ -135,6 +135,7 @@ backup_volumes() {
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 if [ -f "$SCRIPT_DIR/.env" ]; then
     set -a
+    # shellcheck source=/dev/null
     source "$SCRIPT_DIR/.env"
     set +a
 fi
@@ -148,6 +149,8 @@ ENCRYPT=false
 USE_RESTIC=false
 RETENTION_POLICY=""
 BACKUP_DIR=""
+BUSYBOX_VERSION="1.37.0"
+RESTIC_VERSION="0.18.1"
 
 if [ $# -eq 0 ]; then
     usage
@@ -223,7 +226,7 @@ if [ "$USE_RESTIC" = true ]; then
         docker run --rm -v "$BACKUP_DIR":/repo \
             -e RESTIC_REPOSITORY=/repo \
             -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
-            restic/restic init
+            restic/restic:"$RESTIC_VERSION" init
         echo "Restic repository initialized."
     fi
 fi
@@ -237,6 +240,6 @@ if [ "$USE_RESTIC" = true ] && [ -n "$RETENTION_POLICY" ]; then
       -v "$BACKUP_DIR":/repo \
       -e RESTIC_REPOSITORY=/repo \
       -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
-      restic/restic forget $RETENTION_POLICY --prune
+      restic/restic:"$RESTIC_VERSION" forget $RETENTION_POLICY --prune
     echo "✅ Retention policy applied."
 fi
