@@ -22,7 +22,7 @@ usage() {
 }
 
 if [ "$#" -lt 2 ]; then
-    echo "Error: Insufficient arguments." >&2
+    echo "Insufficient arguments." >&2
     usage
     exit 1
 fi
@@ -64,15 +64,15 @@ echo "--------------------------------------------------"
 
 if [ "$BACKUP_EXIT_CODE" -eq 0 ]; then
     echo "✅ Backup process finished successfully."
-    echo "Pinging endpoint..."
+    echo "Calling endpoint..."
     if curl -fsS --get "$NOTIFY_URL"; then
-        echo "✅ ping successful."
+        echo "✅ called endpoint successful."
     else
-        echo "🔥 Error: Failed to ping endpoint." >&2
+        echo "🔥 Error: Failed to call endpoint." >&2
         exit 2
     fi
 else
-    echo "🔥 Backup process failed. No notification sent."
+    echo "🔥 Backup process failed."
 fi
 
 exit "$BACKUP_EXIT_CODE"

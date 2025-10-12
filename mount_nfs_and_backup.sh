@@ -1,5 +1,20 @@
 #!/bin/bash
 
+usage() {
+    echo "Usage: $0 <server> <share> <mount_point> [<optional_backup_args...>]"
+    echo
+    echo "Mounts an NFS share, runs the Docker volume backup script, and then unmounts it."
+    echo
+    echo "Arguments:"
+    echo "  <server>                   The IP address or hostname of the NFS server."
+    echo "  <share>                    The exported directory path on the server (e.g., /exports/backups)."
+    echo "  <mount_point>              The local directory to mount the share onto."
+    echo "  [<optional_backup_args...>] All subsequent arguments are passed directly to the backup script."
+    echo
+    echo "Example:"
+    echo "  $0 192.168.1.50 /exports/docker /mnt/backups --use-restic --skip-volumes=portainer_data"
+}
+
 unmount_nfs_share() {
     local mount_point="$1"
 
@@ -20,7 +35,7 @@ call_backup_script() {
     if [ -x "$backup_script" ]; then
         "$backup_script" "$mount_point" "${backup_script_args[@]}"
     else
-        echo "Error: $backup_script is not executable or does not exist."
+        echo "$backup_script is not executable or does not exist." >&2
         unmount_nfs_share "$mount_point"
         exit 1
     fi
@@ -39,12 +54,13 @@ mount_nfs_share() {
         call_backup_script "$backup_script" "$mount_point" "${backup_script_args[@]}"
         unmount_nfs_share "$mount_point"
     else
-        echo "Failed to mount NFS share."
+        echo "Failed to mount NFS share." >&2
+        exit 1
     fi
 }
 
 if [ $# -lt 3 ]; then
-    echo "Usage: $0 <server> <share> <mount point> [<skip containers>]"
+    usage
     exit 1
 fi
 
