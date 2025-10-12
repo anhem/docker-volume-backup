@@ -23,6 +23,7 @@ unmount_nfs_share() {
         echo "NFS share unmounted successfully."
     else
         echo "Failed to unmount NFS share."
+        exit 1
     fi
 }
 

@@ -42,15 +42,21 @@ BACKUP_EXIT_CODE=0
 case "$PROTOCOL" in
     smb)
         echo "--- Starting backup via SMB ---"
-        if ! "$MOUNT_SMB_SCRIPT" "${MOUNT_SCRIPT_ARGS[@]}"; then
-            BACKUP_EXIT_CODE=$?
+        "$MOUNT_SMB_SCRIPT" "${MOUNT_SCRIPT_ARGS[@]}"
+        script_result=$?
+
+        if [ "$script_result" -ne 0 ]; then
+            BACKUP_EXIT_CODE=$script_result
             echo "🔥 SMB backup script failed with exit code $BACKUP_EXIT_CODE." >&2
         fi
         ;;
     nfs)
         echo "--- Starting backup via NFS ---"
-        if ! "$MOUNT_NFS_SCRIPT" "${MOUNT_SCRIPT_ARGS[@]}"; then
-            BACKUP_EXIT_CODE=$?
+        "$MOUNT_NFS_SCRIPT" "${MOUNT_SCRIPT_ARGS[@]}"
+        script_result=$?
+
+        if [ "$script_result" -ne 0 ]; then
+            BACKUP_EXIT_CODE=$script_result
             echo "🔥 NFS backup script failed with exit code $BACKUP_EXIT_CODE." >&2
         fi
         ;;
