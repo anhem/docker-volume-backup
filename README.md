@@ -1,28 +1,28 @@
 # docker-volume-backup
 
-Backup docker volumes with busybox or restic.
+Backup Docker volumes using BusyBox or Restic.
 
-This script detects all existing docker volumes and runs a busybox or restic container to attach to the volume to create backups.
+This script detects all existing Docker volumes and runs a BusyBox or Restic container to attach to the volumes to create backups.
 
-Backups can be created as tar files with or without GPG encryption, or placed in a restic repository.
+Backups can be created as tar files with or without GPG encryption, or placed in a Restic repository.
 
-This repo also includes scripts for mounting and unmount a nfs or samba share to store backups to.
+This repository also includes scripts for mounting and unmounting NFS or Samba shares to store backups on.
 
 ## Backup
 
 For more information and options run:
 
-```
+```bash
 ./docker_volume_backup.sh --help
 ```
 
-Here is an example where we want backup all volumes except for:
+Here is an example where we want to backup all volumes except for:
 
 * volumes mounted using `nfs`
 * all volumes from the containers named `mariadb` and `mongodb`
 * the volume named `nginx-proxy-manager_data`:
 
-```
+```bash
 ./docker_volume_backup.sh /home/user/backup/ --skip-nfs --skip-containers mariadb,mongodb --skip-volumes nginx-proxy-manager_data
 ```
 
@@ -32,7 +32,7 @@ Here is an example where we want backup all volumes except for:
 
 To restore tar.gz files, run the following command for each volume:
 
-```
+```bash
 docker run --rm \
   -v BACKUP_DIR:/backup \
   -v volume_to_restore:/path/to/original/mount \
@@ -42,15 +42,15 @@ docker run --rm \
 
 **Example**
 
-```
+```bash
 docker run --rm -v /data/backup:/backup -v hello_world_volume:/etc/hello/world busybox tar -xvzf /backup/hello_world_volume.tar.gz -C /
 ```
 
-### gpg files
+### GPG files
 
-To restore gpg files, run the following command for each volume:
+To restore GPG-encrypted files, run the following command for each volume:
 
-```
+```bash
 docker run --rm -it \
   -v BACKUP_DIR:/backup \
   -v volume_to_restore:/path/to/original/mount \
@@ -58,72 +58,90 @@ docker run --rm -it \
   sh -c 'read -sp "Enter backup password: " PWD; echo; gpg --decrypt --batch --passphrase "$PWD" /backup/backup.tar.gz.gpg | tar -xvzf - -C /'
 ```
 
-### restic
+### Restic
 
-To restore from restic repository, run the following command for each volume:
+To restore from a Restic repository, run the following command for each volume:
 
-```
-docker run --rm \
+```bash
+docker run --rm -it \
   -v BACKUP_DIR:/repo \
   -v volume_to_restore:/path/to/original/mount \
   restic/restic restore latest --target /path/to/original/mount
 ```
 
-see restic documentation [restoring from backup](https://restic.readthedocs.io/en/stable/050_restore.html) for more information
+See the Restic documentation for [restoring from backup](https://restic.readthedocs.io/en/stable/050_restore.html) for more information.
 
-**Check snapshots on an nfs share**
+**Restore data from /mnt/restic-repo on a host system to a volume called container_config**:
 
+```bash
+sudo docker run --rm -it \
+  -v /mnt/restic-repo:/repo -v container_config:/target \
+  restic/restic restore latest --repo /repo --tag container_config --target /target
 ```
+
+**Check snapshots on an NFS share**
+
+```bash
 sudo mount -t nfs <ip>:<repo> /mnt/restic-repo && \
 sudo docker run --rm -it \
   -v /mnt/restic-repo:/repo \
-  -e RESTIC_REPOSITORY=/repo \
-  restic/restic snapshots
+  restic/restic snapshots --repo /repo
 ```
 
-## Automatic backup
+## Automatic Backup
 
 ### Cron
 
-Schedule as a cron job to run every night at 01:00 with `crontab -e` and add `0 1 * * * /path/to/dock_volume_backup.sh <backup directory>`
+Schedule as a cron job to run every night at 01:00 with `crontab -e` and add:
+`0 1 * * * /path/to/docker_volume_backup.sh <backup directory>`
+
+### Notifications
+
+You can use the `mount_and_backup_and_notify.sh` script to run a backup and then call a notification URL (e.g., Uptime Kuma push URL).
+
+```bash
+./mount_and_backup_and_notify.sh <smb|nfs> <notify url> [arguments_for_mount_script...]
+```
 
 ## NFS
 
 This will mount an NFS share before running the backup script and then unmount it when done.
 
-`mount_nfs_and_backup.sh <server> <share> <mount point> <backup options>`
+```bash
+./mount_nfs_and_backup.sh <server> <share> <mount point> <backup options>
+```
 
-to use an NFS share, create a mount point and mark it as immutable to prevent anyone from writing to it when not mounted
+To use an NFS share, create a mount point and mark it as immutable to prevent writing to the host filesystem if the mount fails:
 
 **Example:**
 
-```
+```bash
 mkdir -p /mnt/docker/
 chattr +i /mnt/docker/
-mount_nfs_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
+./mount_nfs_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
 ```
 
 ## Samba
 
-This will mount a samba share before running the backup script and then unmount it when done.
+This will mount a Samba share before running the backup script and then unmount it when done.
 
-`mount_smb_and_backup.sh <server> <share> <mount point> <backup options>`
+```bash
+./mount_smb_and_backup.sh <server> <share> <mount point> <backup options>
+```
 
-requires a `.smbcreds` file for credentials with:
+Requires a `.smbcreds` file in the same directory as the script with the following format:
 
 ```
 username=<username>
 password=<password>
 ```
 
-to use a samba share, create a mount point and mark it as immutable to prevent anyone from writing to it when not mounted
+To use a Samba share, create a mount point and mark it as immutable:
 
 **Example:**
 
-```
+```bash
 mkdir -p /mnt/docker/
 chattr +i /mnt/docker/
-mount_smb_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
+./mount_smb_and_backup.sh 192.168.1.2 /path/on/server/ /mnt/docker/ --skip-nfs --use-restic --retention-policy="--keep-daily 7"
 ```
-
-
