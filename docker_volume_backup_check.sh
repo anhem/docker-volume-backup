@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # Configuration
 RESTIC_VERSION="0.18.1"

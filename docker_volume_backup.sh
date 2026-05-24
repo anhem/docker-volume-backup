@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # Configuration
 BUSYBOX_VERSION="1.37.0"
