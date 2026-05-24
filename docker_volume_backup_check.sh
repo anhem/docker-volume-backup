@@ -43,10 +43,14 @@ perform_gpg_check() {
             return 1
         fi
         echo "Verifying GPG integrity for $target_file..."
-        docker run --rm -i \
-            -v "$MOUNT_POINT":/backup \
-            busybox:"$BUSYBOX_VERSION" \
-            sh -c "gpg --decrypt --batch --passphrase-fd 3 /backup/\"$target_file\" | tar -tzf - > /dev/null" 3<<<"$BACKUP_PASSWORD"
+        # Decrypt on host, test tar inside container
+        if gpg --decrypt --batch --passphrase-fd 3 "$MOUNT_POINT/$target_file" 3<<<"$BACKUP_PASSWORD" | \
+            docker run --rm -i busybox:"$BUSYBOX_VERSION" tar -tzf - > /dev/null; then
+            echo "   ✅ $target_file is valid."
+        else
+            echo "   ❌ $target_file is CORRUPT or password incorrect." >&2
+            return 1
+        fi
     else
         echo "Searching for all .gpg files in $MOUNT_POINT..."
         local found=false
@@ -55,10 +59,9 @@ perform_gpg_check() {
             found=true
             local filename=$(basename "$f")
             echo "-> Verifying $filename..."
-            if docker run --rm -i \
-                -v "$MOUNT_POINT":/backup \
-                busybox:"$BUSYBOX_VERSION" \
-                sh -c "gpg --decrypt --batch --passphrase-fd 3 /backup/\"$filename\" | tar -tzf - > /dev/null" 3<<<"$BACKUP_PASSWORD"; then
+            # Decrypt on host, test tar inside container
+            if gpg --decrypt --batch --passphrase-fd 3 "$f" 3<<<"$BACKUP_PASSWORD" | \
+                docker run --rm -i busybox:"$BUSYBOX_VERSION" tar -tzf - > /dev/null; then
                 echo "   ✅ $filename is valid."
             else
                 echo "   ❌ $filename is CORRUPT or password incorrect." >&2

@@ -3,6 +3,7 @@
 Backup Docker volumes using BusyBox or Restic.
 
 ## Table of Contents
+- [Prerequisites](#prerequisites)
 - [Backup](#backup)
   - [Remote Storage (NFS/SMB)](#remote-storage-nfssmb)
   - [Notifications](#notifications)
@@ -13,6 +14,16 @@ Backup Docker volumes using BusyBox or Restic.
 - [Automatic Backup (Cron)](#automatic-backup-cron)
 - [Maintenance (Integrity Check)](#maintenance-integrity-check)
   - [Automating Maintenance](#automating-maintenance)
+
+## Prerequisites
+
+For the scripts to work correctly, ensure the following are installed on your host system:
+
+- **Docker**: Must be installed and the current user must have permissions to run containers.
+- **GPG**: Required if using the `--encrypt` flag or verifying GPG backups.
+- **curl**: Required for sending notifications via the `--notify` flag.
+- **mount.nfs**: Required if using the `nfs` protocol.
+- **mount.cifs**: Required if using the `smb` protocol (typically part of the `cifs-utils` package).
 
 This script detects all existing Docker volumes and runs a BusyBox or Restic container to attach to the volumes to create backups.
 
