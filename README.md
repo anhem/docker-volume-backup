@@ -3,17 +3,19 @@
 Backup Docker volumes using BusyBox or Restic.
 
 ## Table of Contents
+
 - [Prerequisites](#prerequisites)
+- [Password Management](#password-management)
 - [Backup](#backup)
-  - [Remote Storage (NFS/SMB)](#remote-storage-nfssmb)
-  - [Notifications](#notifications)
+    - [Remote Storage (NFS/SMB)](#remote-storage-nfssmb)
+    - [Notifications](#notifications)
 - [Restore](#restore)
-  - [tar files](#tar-files)
-  - [GPG files](#gpg-files)
-  - [Restic](#restic)
+    - [tar files](#tar-files)
+    - [GPG files](#gpg-files)
+    - [Restic](#restic)
 - [Automatic Backup (Cron)](#automatic-backup-cron)
 - [Maintenance (Integrity Check)](#maintenance-integrity-check)
-  - [Automating Maintenance](#automating-maintenance)
+    - [Automating Maintenance](#automating-maintenance)
 
 ## Prerequisites
 
@@ -25,15 +27,51 @@ For the scripts to work correctly, ensure the following are installed on your ho
 - **mount.nfs**: Required if using the `nfs` protocol.
 - **mount.cifs**: Required if using the `smb` protocol (typically part of the `cifs-utils` package).
 
+## Password Management
+
+The scripts require a password for GPG encryption and Restic repositories. You can provide this in two ways:
+
+### 1. .env File (Recommended)
+
+Create a file named `.env` in the same directory as the scripts:
+
+```bash
+BACKUP_PASSWORD="your-secure-password"
+```
+
+### 2. Environment Variable
+
+Export the variable in your shell or crontab:
+
+```bash
+export BACKUP_PASSWORD="your-secure-password"
+```
+
+For SMB shares, the script requires a `.smbcreds` file in the script directory:
+
+```
+username=your_username
+password=your_password
+```
+
+**Security:** Ensure sensitive files are only readable by your user:
+
+```bash
+chmod 600 .env .smbcreds
+```
+
 This script detects all existing Docker volumes and runs a BusyBox or Restic container to attach to the volumes to create backups.
 
 Backups can be created as tar files with or without GPG encryption, or placed in a Restic repository.
 
 > [!WARNING]
-> **Database Backups:** Do not use this script to back up live database data directories (e.g., MySQL, PostgreSQL, MongoDB). Simple file-level backups of running databases can result in corrupted or inconsistent data. Always use the database's native backup tools (like `mysqldump`, `pg_dump`, or `mongodump`) to create a dump file first, and then back up that dump file using this script.
+> **Database Backups:** Do not use this script to back up live database data directories (e.g., MySQL, PostgreSQL, MongoDB). Simple file-level backups
+> of running databases can result in corrupted or inconsistent data. Always use the database's native backup tools (like `mysqldump`, `pg_dump`, or
+`mongodump`) to create a dump file first, and then back up that dump file using this script.
 
 > [!CAUTION]
-> **Disclaimer:** This software is provided "as is", without warranty of any kind. Use it at your own risk. Always verify your backups regularly to ensure data integrity.
+> **Disclaimer:** This software is provided "as is", without warranty of any kind. Use it at your own risk. Always verify your backups regularly to
+> ensure data integrity.
 
 ## Backup
 
@@ -56,6 +94,7 @@ Backup all volumes to a local directory:
 The script can automatically mount an NFS or SMB share before starting the backup and unmount it when finished.
 
 **NFS Example:**
+
 ```bash
 ./docker_volume_backup.sh /mnt/backup \
   --protocol nfs \
@@ -66,6 +105,7 @@ The script can automatically mount an NFS or SMB share before starting the backu
 
 **SMB Example:**
 (Requires a `.smbcreds` file with `username=` and `password=` in the script directory)
+
 ```bash
 ./docker_volume_backup.sh /mnt/backup \
   --protocol smb \
@@ -85,17 +125,20 @@ You can call a notification URL (e.g., Uptime Kuma, Healthchecks.io) on success:
 ## Restore
 
 ### tar files
+
 ```bash
 docker run --rm -v /data/backup:/backup -v my_volume:/target busybox tar -xvzf /backup/my_volume.tar.gz -C /
 ```
 
 ### GPG files
+
 ```bash
 docker run --rm -it -v /data/backup:/backup -v my_volume:/target busybox \
   sh -c 'read -sp "Pass: " P; gpg --decrypt --batch --passphrase "$P" /backup/my_volume.tar.gz.gpg | tar -xvzf - -C /'
 ```
 
 ### Restic
+
 ```bash
 docker run --rm -it -v /data/backup:/repo -v my_volume:/target restic/restic \
   restore latest --repo /repo --tag my_volume --target /target
@@ -118,6 +161,7 @@ To verify the integrity of your backups, use the unified check script. This supp
 ```
 
 **Examples:**
+
 ```bash
 # Verify a Restic repository (NFS)
 ./docker_volume_backup_check.sh /mnt/check --protocol nfs --server 192.168.1.50 --share /exports/backups --type restic --read-data-subset=10%
@@ -141,4 +185,5 @@ Add these to your `crontab -e` to automate verification:
 
 #### Monitoring & Notifications
 
-You can combine maintenance with notifications by using the main backup script's notification logic if you wrap it, but for simple health checks, the absence of a cron success log or a manual ping is your signal. 
+You can combine maintenance with notifications by using the main backup script's notification logic if you wrap it, but for simple health checks, the
+absence of a cron success log or a manual ping is your signal. 
