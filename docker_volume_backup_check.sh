@@ -9,7 +9,28 @@ BUSYBOX_VERSION="1.37.0"
 
 usage() {
     echo "Usage: $0 <mount_point> [OPTIONS]"
-
+    echo
+    echo "Performs an integrity check on backups stored on NFS, SMB, or a local directory."
+    echo
+    echo "Arguments:"
+    echo "  <mount_point>         Local directory (where share is mounted or backups are located)"
+    echo
+    echo "Options:"
+    echo "  --protocol <nfs|smb|local>  Storage protocol (default: local)"
+    echo "  --type <restic|gpg>         Type of backup to check (required)"
+    echo "  --server <host>             Server IP/hostname (for nfs/smb)"
+    echo "  --share <name>              Share name or export path (for nfs/smb)"
+    echo "  --notify <url>              Call this URL (via curl) on successful check."
+    echo "  -h, --help                  Display this help message."
+    echo
+    echo "Extra Arguments:"
+    echo "  For restic: Any extra arguments are passed to 'restic check' (e.g. --read-data)"
+    echo "  For gpg:    The specific filename to check (or leave empty for all .gpg files)"
+    echo
+    echo "Examples:"
+    echo "  $0 /mnt/check --protocol nfs --server 192.168.1.50 --share /backups --type restic"
+    echo "  $0 /mnt/check --protocol smb --server 192.168.1.50 --share backups --type gpg"
+    echo "  $0 /home/user/backups --type restic"
 }
 
 cleanup() {
@@ -94,6 +115,7 @@ SERVER=""
 SHARE=""
 MOUNT_POINT=""
 CHECK_TYPE=""
+NOTIFY_URL=""
 EXTRA_ARGS=()
 
 # Parse Arguments
@@ -107,6 +129,8 @@ while [ "$#" -gt 0 ]; do
         --server) SERVER="$2"; shift 2 ;;
         --share=*) SHARE="${1#*=}"; shift 1 ;;
         --share) SHARE="$2"; shift 2 ;;
+        --notify=*) NOTIFY_URL="${1#*=}"; shift 1 ;;
+        --notify) NOTIFY_URL="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -*) EXTRA_ARGS+=("$1"); shift 1 ;; # For things like --read-data
         *)
@@ -162,3 +186,10 @@ case "$CHECK_TYPE" in
         exit 1
         ;;
 esac
+
+# 3. Notify
+if [ -n "$NOTIFY_URL" ]; then
+    echo "Calling notification endpoint..."
+    curl -fsS --get "$NOTIFY_URL"
+    echo "✅ Notification sent."
+fi
