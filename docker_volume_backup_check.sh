@@ -63,10 +63,11 @@ unmount_share() {
 
 perform_restic_check() {
     echo "Running restic check ${EXTRA_ARGS[*]}..."
+    export RESTIC_PASSWORD="$BACKUP_PASSWORD"
     docker run --rm -it \
         -v "$MOUNT_POINT":/repo \
         -e RESTIC_REPOSITORY=/repo \
-        -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
+        -e RESTIC_PASSWORD \
         restic/restic:"$RESTIC_VERSION" check "${EXTRA_ARGS[@]}"
 }
 
@@ -83,7 +84,7 @@ perform_gpg_check() {
         docker run --rm -i \
             -v "$MOUNT_POINT":/backup \
             busybox:"$BUSYBOX_VERSION" \
-            sh -c "gpg --decrypt --batch --passphrase \"$BACKUP_PASSWORD\" /backup/\"$target_file\" | tar -tzf - > /dev/null"
+            sh -c "gpg --decrypt --batch --passphrase-fd 3 /backup/\"$target_file\" | tar -tzf - > /dev/null" 3<<<"$BACKUP_PASSWORD"
     else
         echo "Searching for all .gpg files in $MOUNT_POINT..."
         local found=false
@@ -95,7 +96,7 @@ perform_gpg_check() {
             if docker run --rm -i \
                 -v "$MOUNT_POINT":/backup \
                 busybox:"$BUSYBOX_VERSION" \
-                sh -c "gpg --decrypt --batch --passphrase \"$BACKUP_PASSWORD\" /backup/\"$filename\" | tar -tzf - > /dev/null"; then
+                sh -c "gpg --decrypt --batch --passphrase-fd 3 /backup/\"$filename\" | tar -tzf - > /dev/null" 3<<<"$BACKUP_PASSWORD"; then
                 echo "   ✅ $filename is valid."
             else
                 echo "   ❌ $filename is CORRUPT or password incorrect." >&2

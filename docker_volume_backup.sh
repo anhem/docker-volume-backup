@@ -117,17 +117,18 @@ backup_volumes() {
 
             if [ "$USE_RESTIC" = true ]; then
                 echo "-> Backing up '$volume' (from '$source' on '$container') to restic repository..."
+                export RESTIC_PASSWORD="$BACKUP_PASSWORD"
                 docker run --rm --volumes-from "$container" \
                     -v "$backup_dir":/repo \
                     -e RESTIC_REPOSITORY=/repo \
-                    -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
+                    -e RESTIC_PASSWORD \
                     restic/restic:"$RESTIC_VERSION" backup --tag "$volume" --tag "$container" --host "$(hostname)" "$source"
             else
                 local backup_file="$volume.tar.gz"
                 if [ "$ENCRYPT" = true ]; then
                     echo "-> Backing up and encrypting '$volume' (from '$source' on '$container') to $backup_dir$backup_file.gpg"
                     docker run --rm --volumes-from "$container" busybox:"$BUSYBOX_VERSION" tar -zcf - "$source" | \
-                        gpg --batch --yes --passphrase "$BACKUP_PASSWORD" -c -o "$backup_dir$backup_file.gpg"
+                        gpg --batch --yes --passphrase-fd 3 -c -o "$backup_dir$backup_file.gpg" 3<<<"$BACKUP_PASSWORD"
                 else
                     echo "-> Backing up '$volume' (from '$source' on '$container') to $backup_dir$backup_file"
                     docker run --rm --volumes-from "$container" -v "$backup_dir":/backup busybox:"$BUSYBOX_VERSION" tar -zcvf /backup/"$backup_file" "$source"
@@ -234,7 +235,8 @@ mkdir -p "$BACKUP_DIR"
 # 2. Restic Init
 if [ "$USE_RESTIC" = true ] && [ ! -f "${BACKUP_DIR%/}/config" ]; then
     echo "Initializing new Restic repository..."
-    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD="$BACKUP_PASSWORD" restic/restic:"$RESTIC_VERSION" init
+    export RESTIC_PASSWORD="$BACKUP_PASSWORD"
+    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD restic/restic:"$RESTIC_VERSION" init
 fi
 
 # 3. Perform Backup
@@ -243,7 +245,8 @@ backup_volumes
 # 4. Restic Retention
 if [ "$USE_RESTIC" = true ] && [ -n "$RETENTION_POLICY" ]; then
     echo "Applying retention policy..."
-    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD="$BACKUP_PASSWORD" restic/restic:"$RESTIC_VERSION" forget $RETENTION_POLICY --prune
+    export RESTIC_PASSWORD="$BACKUP_PASSWORD"
+    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD restic/restic:"$RESTIC_VERSION" forget $RETENTION_POLICY --prune
 fi
 
 # 5. Notify
