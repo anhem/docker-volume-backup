@@ -103,14 +103,31 @@ Schedule as a cron job to run every night at 01:00:
 To verify the integrity of your backups, use the unified check script. This supports both Restic repositories and GPG-encrypted tar files.
 
 ```bash
-./docker_volume_backup_check.sh <nfs|smb|local> <server> <share> <mount_point> <restic|gpg> [options...]
+./docker_volume_backup_check.sh <mount_point> --type <restic|gpg> [OPTIONS]
 ```
 
 **Examples:**
 ```bash
 # Verify a Restic repository (NFS)
-./docker_volume_backup_check.sh nfs 192.168.1.50 /exports/backups /mnt/check restic --read-data-subset=10%
+./docker_volume_backup_check.sh /mnt/check --protocol nfs --server 192.168.1.50 --share /exports/backups --type restic --read-data-subset=10%
 
 # Verify all GPG backups (Local)
-./docker_volume_backup_check.sh local - - /home/user/backups gpg
+./docker_volume_backup_check.sh /home/user/backups --type gpg
 ```
+
+### Automating Maintenance
+
+It is recommended to run a basic integrity check weekly and a more thorough data check monthly.
+
+#### Cron Example
+
+Add these to your `crontab -e` to automate verification:
+
+```cron
+# Every Sunday at 02:00: Check metadata and 10% of data
+0 2 * * 0 /path/to/docker_volume_backup_check.sh /mnt/check --protocol nfs --server 192.168.1.50 --share /share --type restic --read-data-subset=10% >> /var/log/backup_check.log 2>&1
+```
+
+#### Monitoring & Notifications
+
+You can combine maintenance with notifications by using the main backup script's notification logic if you wrap it, but for simple health checks, the absence of a cron success log or a manual ping is your signal. 
