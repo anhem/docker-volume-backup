@@ -1,11 +1,18 @@
 #!/bin/bash
 
+set -e
+
+# Configuration
+BUSYBOX_VERSION="1.37.0"
+RESTIC_VERSION="0.18.1"
+
 usage() {
     echo "Usage: $0 <backup_directory_or_restic_repo> [OPTIONS]"
     echo
-    echo "Backs up Docker volumes to tar, encrypted tar using GPG or restic"
+    echo "Backs up Docker volumes to tar, encrypted tar using GPG or restic."
+    echo "Supports automatic mounting of NFS/SMB shares and success notifications."
     echo
-    echo "Options:"
+    echo "General Options:"
     echo "  --use-restic                         Back up volumes to a restic repository."
     echo "  --retention-policy \"<policy>\"        Apply a restic forget policy after backup. Requires --use-restic."
     echo "  --encrypt                            Encrypt tar archives using GPG."
@@ -14,13 +21,29 @@ usage() {
     echo "  --include-containers <cont1,...>     Only use containers from this list to perform the backup."
     echo "  --skip-containers <cont1,...>        Do not use these containers to perform the backup."
     echo "  --skip-nfs                           Do not back up volumes mounted via NFS."
+    echo "  --notify <url>                       Call this URL (via curl) on successful backup."
     echo "  -h, --help                           Display this help message."
+    echo
+    echo "Remote Storage Options (optional):"
+    echo "  --protocol <nfs|smb>                 Mount a remote share before backing up."
+    echo "  --server <host>                      Server IP or hostname for the remote share."
+    echo "  --share <name>                       Share name (SMB) or export path (NFS)."
     echo
     echo "Password Management:"
     echo "  Set BACKUP_PASSWORD in a '.env' file or as an environment variable."
-    echo
-    echo "Example with Retention Policy:"
-    echo "  $0 /mnt/restic-repo --use-restic --retention-policy=\"--keep-daily 7 --keep-weekly 4\""
+    echo "  SMB credentials require a '.smbcreds' file in the script directory."
+}
+
+cleanup() {
+    local exit_code=$?
+    if [ -n "$PROTOCOL" ] && [ "$PROTOCOL" != "local" ] && [ -d "$BACKUP_DIR" ] && mountpoint -q "$BACKUP_DIR"; then
+        echo "Unmounting $PROTOCOL share at $BACKUP_DIR..."
+        if ! umount "$BACKUP_DIR"; then
+            echo "Error: Failed to unmount share. It may be busy." >&2
+            if [ "$exit_code" -eq 0 ]; then exit_code=1; fi
+        fi
+    fi
+    exit "$exit_code"
 }
 
 is_in_array() {
@@ -28,9 +51,7 @@ is_in_array() {
     shift
     local arr=("$@")
     for element in "${arr[@]}"; do
-        if [ "$element" = "$item_to_find" ]; then
-            return 0
-        fi
+        if [ "$element" = "$item_to_find" ]; then return 0; fi
     done
     return 1
 }
@@ -57,10 +78,6 @@ backup_volumes() {
     local conditions=()
     if [ "$USE_RESTIC" = true ]; then conditions+=("using restic"); fi
     if [ "$ENCRYPT" = true ]; then conditions+=("with GPG encryption"); fi
-    if [ ${#INCLUDE_VOLUMES[@]} -gt 0 ]; then conditions+=("including only volumes: ${INCLUDE_VOLUMES[*]}"); fi
-    if [ ${#SKIP_VOLUMES[@]} -gt 0 ]; then conditions+=("skipping volumes: ${SKIP_VOLUMES[*]}"); fi
-    if [ ${#INCLUDE_CONTAINERS[@]} -gt 0 ]; then conditions+=("including only containers: ${INCLUDE_CONTAINERS[*]}"); fi
-    if [ ${#SKIP_CONTAINERS[@]} -gt 0 ]; then conditions+=("skipping containers: ${SKIP_CONTAINERS[*]}"); fi
     if [ "$SKIP_NFS" = true ]; then conditions+=("skipping NFS volumes"); fi
 
     if [ ${#conditions[@]} -gt 0 ]; then
@@ -72,9 +89,7 @@ backup_volumes() {
     echo "--------------------------------------------------"
 
     for volume in $(get_docker_volume_names); do
-        if [ ${#INCLUDE_VOLUMES[@]} -gt 0 ] && ! is_in_array "$volume" "${INCLUDE_VOLUMES[@]}"; then
-            continue
-        fi
+        if [ ${#INCLUDE_VOLUMES[@]} -gt 0 ] && ! is_in_array "$volume" "${INCLUDE_VOLUMES[@]}"; then continue; fi
         if is_in_array "$volume" "${SKIP_VOLUMES[@]}"; then
             echo "-> Skipping volume '$volume' as requested."
             continue
@@ -86,9 +101,7 @@ backup_volumes() {
 
         local backup_performed_for_volume=false
         for container in $(get_containers_for_volume "$volume"); do
-            if [ ${#INCLUDE_CONTAINERS[@]} -gt 0 ] && ! is_in_array "$container" "${INCLUDE_CONTAINERS[@]}"; then
-                continue
-            fi
+            if [ ${#INCLUDE_CONTAINERS[@]} -gt 0 ] && ! is_in_array "$container" "${INCLUDE_CONTAINERS[@]}"; then continue; fi
             if is_in_array "$container" "${SKIP_CONTAINERS[@]}"; then
                 echo "-> Skipping container '$container' for volume '$volume' as requested."
                 continue
@@ -132,14 +145,15 @@ backup_volumes() {
     echo "✅ Backup process complete."
 }
 
+# --- Initialization ---
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 if [ -f "$SCRIPT_DIR/.env" ]; then
     set -a
-    # shellcheck source=/dev/null
     source "$SCRIPT_DIR/.env"
     set +a
 fi
 
+# Default Variables
 INCLUDE_VOLUMES=()
 SKIP_VOLUMES=()
 INCLUDE_CONTAINERS=()
@@ -149,14 +163,12 @@ ENCRYPT=false
 USE_RESTIC=false
 RETENTION_POLICY=""
 BACKUP_DIR=""
-BUSYBOX_VERSION="1.37.0"
-RESTIC_VERSION="0.18.1"
+PROTOCOL=""
+SERVER=""
+SHARE=""
+NOTIFY_URL=""
 
-if [ $# -eq 0 ]; then
-    usage
-    exit 1
-fi
-
+# Parse Arguments
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --include-volumes=*) IFS=',' read -r -a INCLUDE_VOLUMES <<< "${1#*=}"; shift 1 ;;
@@ -169,77 +181,74 @@ while [ "$#" -gt 0 ]; do
         --skip-containers) IFS=',' read -r -a SKIP_CONTAINERS <<< "$2"; shift 2 ;;
         --retention-policy=*) RETENTION_POLICY="${1#*=}"; shift 1 ;;
         --retention-policy) RETENTION_POLICY="$2"; shift 2 ;;
+        --protocol=*) PROTOCOL=$(echo "${1#*=}" | tr '[:upper:]' '[:lower:]'); shift 1 ;;
+        --protocol) PROTOCOL=$(echo "$2" | tr '[:upper:]' '[:lower:]'); shift 2 ;;
+        --server=*) SERVER="${1#*=}"; shift 1 ;;
+        --server) SERVER="$2"; shift 2 ;;
+        --share=*) SHARE="${1#*=}"; shift 1 ;;
+        --share) SHARE="$2"; shift 2 ;;
+        --notify=*) NOTIFY_URL="${1#*=}"; shift 1 ;;
+        --notify) NOTIFY_URL="$2"; shift 2 ;;
         --skip-nfs) SKIP_NFS=true; shift 1 ;;
         --encrypt) ENCRYPT=true; shift 1 ;;
         --use-restic) USE_RESTIC=true; shift 1 ;;
         -h|--help) usage; exit 0 ;;
-        -*) echo "Unknown option: $1" >&2; usage; exit 1 ;;
         *)
-            if [ -z "$BACKUP_DIR" ]; then
+            if [ -z "$BACKUP_DIR" ] && [ "${1:0:1}" != "-" ]; then
                 BACKUP_DIR=$1
                 shift 1
             else
-                echo "Error: Backup directory already set. Unexpected argument: $1" >&2
-                usage
-                exit 1
+                echo "Unknown argument or error: $1" >&2; usage; exit 1
             fi
             ;;
     esac
 done
 
-if [ -z "$BACKUP_DIR" ]; then
-    echo "Error: Backup directory must be specified." >&2
-    usage
-    exit 1
+# Validation
+if [ -z "$BACKUP_DIR" ]; then echo "Error: Backup directory must be specified." >&2; exit 1; fi
+if [ -n "$PROTOCOL" ] && [ "$PROTOCOL" != "local" ]; then
+    if [ -z "$SERVER" ] || [ -z "$SHARE" ]; then
+        echo "Error: Remote protocol '$PROTOCOL' requires --server and --share." >&2; exit 1
+    fi
+    trap cleanup EXIT
 fi
-
-if [ ${#INCLUDE_VOLUMES[@]} -gt 0 ] && [ ${#SKIP_VOLUMES[@]} -gt 0 ]; then
-    echo "Error: --include-volumes and --skip-volumes cannot be used at the same time." >&2
-    exit 1
-fi
-
-if [ ${#INCLUDE_CONTAINERS[@]} -gt 0 ] && [ ${#SKIP_CONTAINERS[@]} -gt 0 ]; then
-    echo "Error: --include-containers and --skip-containers cannot be used at the same time." >&2
-    exit 1
-fi
-
-if [ "$ENCRYPT" = true ] && [ "$USE_RESTIC" = true ]; then
-    echo "Error: --encrypt cannot be used with --use-restic." >&2
-    exit 1
-fi
-
-if [ -n "$RETENTION_POLICY" ] && [ "$USE_RESTIC" = false ]; then
-    echo "Error: --retention-policy can only be used with --use-restic." >&2
-    exit 1
-fi
-
 if { [ "$ENCRYPT" = true ] || [ "$USE_RESTIC" = true ]; } && [ -z "$BACKUP_PASSWORD" ]; then
-    echo "Error: Encryption requires BACKUP_PASSWORD to be set in a .env file or as an environment variable." >&2
-    exit 1
+    echo "Error: Encryption requires BACKUP_PASSWORD." >&2; exit 1
+fi
+
+# --- Execution ---
+
+# 1. Mounting
+if [ "$PROTOCOL" = "nfs" ]; then
+    echo "Mounting NFS share..."
+    mount -t nfs -o rw,noatime,rsize=8192,wsize=8192,tcp,timeo=14,nfsvers=4 "$SERVER:$SHARE" "$BACKUP_DIR"
+elif [ "$PROTOCOL" = "smb" ]; then
+    CREDS_FILE="$SCRIPT_DIR/.smbcreds"
+    if [ ! -f "$CREDS_FILE" ]; then echo "Error: .smbcreds file not found." >&2; exit 1; fi
+    echo "Mounting SMB share..."
+    mount -t cifs -o credentials="$CREDS_FILE",rw,noatime "//$SERVER/$SHARE" "$BACKUP_DIR"
 fi
 
 mkdir -p "$BACKUP_DIR"
 
-if [ "$USE_RESTIC" = true ]; then
-    if [ ! -f "${BACKUP_DIR%/}/config" ]; then
-        echo "Restic repository not found. Initializing new repository in '$BACKUP_DIR'..."
-        docker run --rm -v "$BACKUP_DIR":/repo \
-            -e RESTIC_REPOSITORY=/repo \
-            -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
-            restic/restic:"$RESTIC_VERSION" init
-        echo "Restic repository initialized."
-    fi
+# 2. Restic Init
+if [ "$USE_RESTIC" = true ] && [ ! -f "${BACKUP_DIR%/}/config" ]; then
+    echo "Initializing new Restic repository..."
+    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD="$BACKUP_PASSWORD" restic/restic:"$RESTIC_VERSION" init
 fi
 
+# 3. Perform Backup
 backup_volumes
 
+# 4. Restic Retention
 if [ "$USE_RESTIC" = true ] && [ -n "$RETENTION_POLICY" ]; then
-    echo "--------------------------------------------------"
-    echo "Applying retention policy: $RETENTION_POLICY"
-    docker run --rm \
-      -v "$BACKUP_DIR":/repo \
-      -e RESTIC_REPOSITORY=/repo \
-      -e RESTIC_PASSWORD="$BACKUP_PASSWORD" \
-      restic/restic:"$RESTIC_VERSION" forget $RETENTION_POLICY --prune
-    echo "✅ Retention policy applied."
+    echo "Applying retention policy..."
+    docker run --rm -v "$BACKUP_DIR":/repo -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD="$BACKUP_PASSWORD" restic/restic:"$RESTIC_VERSION" forget $RETENTION_POLICY --prune
+fi
+
+# 5. Notify
+if [ -n "$NOTIFY_URL" ]; then
+    echo "Calling notification endpoint..."
+    curl -fsS --get "$NOTIFY_URL"
+    echo "✅ Notification sent."
 fi
