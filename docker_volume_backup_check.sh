@@ -48,7 +48,7 @@ cleanup() {
 perform_restic_check() {
     echo "Running restic check ${EXTRA_ARGS[*]}..."
     export RESTIC_PASSWORD="$BACKUP_PASSWORD"
-    docker run --rm -it \
+    docker run --rm \
         -v "$MOUNT_POINT":/repo \
         -e RESTIC_REPOSITORY=/repo \
         -e RESTIC_PASSWORD \
@@ -58,7 +58,7 @@ perform_restic_check() {
 perform_gpg_check() {
     local target_file="${EXTRA_ARGS[0]}"
     local overall_success=true
-    
+
     if [ -n "$target_file" ]; then
         if [ ! -f "$MOUNT_POINT/$target_file" ]; then
             echo "Error: File $target_file not found in $MOUNT_POINT" >&2
@@ -90,7 +90,7 @@ perform_gpg_check() {
                 overall_success=false
             fi
         done
-        
+
         if [ "$found" = false ]; then
             echo "No .gpg files found."
             return 0
